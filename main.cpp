@@ -6,6 +6,7 @@
 #include <SFML/Audio.hpp>
 #include <thread>
 #include <atomic>
+#include <condition_variable>
 
 namespace fs = std::filesystem;
 using namespace std;
@@ -70,9 +71,19 @@ vector<string> readMp3Files(const string &directoryPath)
     return mp3Files;
 }
 
+// karena pakai thread, jadi perlu condition variable
+// dan mutex untuk sinkronisasi antara main thread dengan
+// thread lain yang sedang memainkan audio
+std::condition_variable cv;
+std::mutex cv_m;
+bool songEnded = false;
+
+// Variable sound nya dideklarasi di luar fungsi
+// supaya bisa digunakan di fungsi lain
+sf::Sound sound;
+
 void playAudioFile(const string &audioFilePath, atomic<bool> &stopFlag)
 {
-    static sf::Sound sound; // Make sound static to keep it in scope
     sf::SoundBuffer buffer;
     if (!buffer.loadFromFile(audioFilePath))
     {
@@ -88,6 +99,17 @@ void playAudioFile(const string &audioFilePath, atomic<bool> &stopFlag)
         sf::sleep(sf::milliseconds(100));
     }
     sound.stop();
+
+    // Periksa apakah user yang menyebabkan audio berhenti
+    // Kalau bukan user, maka audio nya berhenti karena selesai
+    if (!stopFlag)
+    {
+        {
+            lock_guard<mutex> lock(cv_m);
+            songEnded = true;
+        }
+        cv.notify_one();
+    }
 }
 
 void stopAudio(atomic<bool> &stopFlag)
@@ -95,29 +117,61 @@ void stopAudio(atomic<bool> &stopFlag)
     stopFlag = true;
 }
 
+void playNext(list<string>::iterator &current_song, list<string> &playlist, atomic_bool &stopFlag, thread &audioThread, stack<string> &history)
+{
+    if (current_song != playlist.end())
+    {
+        stopAudio(stopFlag);
+        if (audioThread.joinable())
+        {
+            audioThread.join();
+        }
+        ++current_song;
+        // Kalau misalnya setelah di-increment,
+        // current_song sudah di akhir playlist
+        // maka kembalikan current song ke awal
+        if (current_song == playlist.end())
+        {
+            current_song = playlist.begin();
+        }
+        cout << "Next song: ";
+        printMusicName(*current_song, false);
+        stopFlag = false;
+        audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
+        history.push(*current_song); // Tambahkan ke history
+    }
+    else
+    {
+        cout << "No song is currently selected." << endl;
+    }
+}
+
 int main()
 {
     vector<string> mp3Files = readMp3Files("musics");
 
-    list<string> playlist; // Doubly linked list for playlist
-    stack<string> history; // Stack for recently played
+    // Pakai list (sifatnya hampir sama dengan doubly linked list)
+    list<string> playlist;
+    // Pakai stack untuk menyimpan history lagu
+    stack<string> history;
 
     for (size_t i = 0; i < mp3Files.size(); i++)
     {
         playlist.push_back(mp3Files[i]);
     }
 
-    list<string>::iterator current_song = playlist.end(); // Initially, no current song
+    // Inisialisasi variable current_song
+    // untuk menunjuk ke lagu yang sedang diputar
+    // tapi di awal, belum ada lagu yang diputar
+    list<string>::iterator current_song = playlist.end();
 
     cout << "=============================" << endl;
     cout << "       Music Playlist        " << endl;
     cout << "=============================" << endl;
 
-    cout << "Available songs:" << endl;
-    printFiles(playlist);
-
     cout << "Commands:" << endl;
     cout << "  play           - Play the current song" << endl;
+    cout << "  pause          - Pause the current song" << endl;
     cout << "  next           - Go to the next song" << endl;
     cout << "  previous       - Go to the previous song" << endl;
     cout << "  list           - List all songs in the playlist" << endl;
@@ -128,6 +182,20 @@ int main()
     string command;
     atomic<bool> stopFlag(false);
     thread audioThread;
+
+    // Thread khusus untuk memonitor apakah lagu sudah selesai
+    // atau belum
+    // Butuh thread ini, karena supaya main thread (yang menampilkan menu)
+    // tidak diganggu
+    thread monitorThread([&]()
+                         {
+        std::unique_lock<std::mutex> lock(cv_m);
+        while (true)
+        {
+            cv.wait(lock, [&]{ return songEnded; });
+            songEnded = false;
+            playNext(current_song, playlist, stopFlag, audioThread, history);
+        } });
 
     while (true)
     {
@@ -152,30 +220,20 @@ int main()
             audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
             history.push(*current_song); // Add to history
         }
+        else if (command == "pause")
+        {
+            if (sound.getStatus() == sf::Sound::Playing)
+            {
+                sound.pause();
+            }
+            else if (sound.getStatus() == sf::Sound::Paused)
+            {
+                sound.play();
+            }
+        }
         else if (command == "next")
         {
-            if (current_song != playlist.end())
-            {
-                stopAudio(stopFlag); // Stop the current song
-                if (audioThread.joinable())
-                {
-                    audioThread.join();
-                }
-                ++current_song;
-                if (current_song == playlist.end())
-                {
-                    current_song = playlist.begin(); // Wrap around to the beginning
-                }
-                cout << "Next song: ";
-                printMusicName(*current_song, false);
-                stopFlag = false;
-                audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
-                history.push(*current_song); // Add to history
-            }
-            else
-            {
-                cout << "No song is currently selected." << endl;
-            }
+            playNext(current_song, playlist, stopFlag, audioThread, history);
         }
         else if (command == "previous")
         {
@@ -203,6 +261,12 @@ int main()
         {
             cout << "Invalid command." << endl;
         }
+    }
+
+    // Join the monitor thread before exiting
+    if (monitorThread.joinable())
+    {
+        monitorThread.join();
     }
 
     return 0;
