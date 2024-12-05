@@ -94,16 +94,16 @@ void playAudioFile(const string &audioFilePath, atomic<bool> &stopFlag)
     sound.play();
 
     // Wait until the sound is finished playing or stopFlag is set
-    while (sound.getStatus() == sf::Sound::Playing && !stopFlag)
+    while ((sound.getStatus() == sf::Sound::Playing || sound.getStatus() == sf::Sound::Paused) && !stopFlag)
     {
         sf::sleep(sf::milliseconds(100));
     }
-    sound.stop();
 
-    // Periksa apakah user yang menyebabkan audio berhenti
-    // Kalau bukan user, maka audio nya berhenti karena selesai
-    if (!stopFlag)
+    // Only stop and notify if not paused
+    if (!stopFlag && sound.getStatus() != sf::Sound::Paused)
     {
+        sound.stop();
+
         {
             lock_guard<mutex> lock(cv_m);
             songEnded = true;
@@ -136,6 +136,7 @@ void playNext(list<string>::iterator &current_song, list<string> &playlist, atom
         }
         cout << "Next song: ";
         printMusicName(*current_song, false);
+        cout << endl;
         stopFlag = false;
         audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
         history.push(*current_song); // Tambahkan ke history
@@ -181,6 +182,7 @@ int main()
 
     string command;
     atomic<bool> stopFlag(false);
+    std::atomic<bool> exitFlag(false);
     thread audioThread;
 
     // Thread khusus untuk memonitor apakah lagu sudah selesai
@@ -190,9 +192,10 @@ int main()
     thread monitorThread([&]()
                          {
         std::unique_lock<std::mutex> lock(cv_m);
-        while (true)
+        while (!exitFlag)
         {
-            cv.wait(lock, [&]{ return songEnded; });
+            cv.wait(lock, [&]{ return songEnded || exitFlag; });
+            if (exitFlag) break;
             songEnded = false;
             playNext(current_song, playlist, stopFlag, audioThread, history);
         } });
@@ -204,6 +207,17 @@ int main()
 
         if (command == "play")
         {
+            if (sound.getStatus() == sf::Sound::Paused)
+            {
+                sound.play();
+                continue;
+            }
+            else if (sound.getStatus() == sf::Sound::Playing)
+            {
+                cout << "Song is already playing." << endl;
+                continue;
+            }
+
             if (current_song == playlist.end())
             {
                 // Auto select the first song if no song is selected
@@ -212,6 +226,7 @@ int main()
 
             cout << "Playing: ";
             printMusicName(*current_song, false);
+            cout << endl;
             stopFlag = false;
             if (audioThread.joinable())
             {
@@ -237,7 +252,25 @@ int main()
         }
         else if (command == "previous")
         {
-            // ... (Move current_song to previous. Handle wrapping around if at beginning.)...
+            if (current_song != playlist.begin())
+            {
+                stopAudio(stopFlag);
+                if (audioThread.joinable())
+                {
+                    audioThread.join();
+                }
+                --current_song;
+                cout << "Previous song: ";
+                printMusicName(*current_song, false);
+                cout << endl;
+                stopFlag = false;
+                audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
+                history.push(*current_song); // Add to history
+            }
+            else
+            {
+                cout << "No previous song." << endl;
+            }
         }
         else if (command == "list")
         {
@@ -250,6 +283,8 @@ int main()
         }
         else if (command == "quit")
         {
+            exitFlag = true;
+            cv.notify_one();     // Notify the monitorThread to exit
             stopAudio(stopFlag); // Stop the current song
             if (audioThread.joinable())
             {
