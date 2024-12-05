@@ -12,8 +12,8 @@ Kelompok ini membuat simple music player dimana user dapat memilih lagu mana yan
 ### Fitur Aplikasi
 - [x] Play/Pause lagu
 - [x] Next lagu
-- [ ] Previous lagu
-- [ ] Menampilkan lagu yang sudah pernah diputar sebelumnya
+- [x] Previous lagu
+- [x] Menampilkan lagu yang sudah pernah diputar sebelumnya
 - [x] Menampilkan lagu yang bisa diputar
 
 ## Struktur Data yang Digunakan
@@ -197,6 +197,12 @@ Berikut adalah langkah-langkah untuk mengatur library SFML di Visual Studio Code
     2. Jalankan aplikasi dengan perintah:
         ```bash
         ./music_player.exe
+        ```
+- **On Mac**
+    1. Pastikan Anda berada di direktori proyek.
+    2. Jalankan aplikasi dengan perintah:
+        ```bash
+        g++ -std=c++17  main.cpp -o main $(pkg-config --cflags --libs sfml-audio sfml-system) && ./main
         ```
 
 ## Menambahkan Lagu
