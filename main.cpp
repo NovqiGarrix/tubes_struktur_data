@@ -177,14 +177,14 @@ int main()
     cout << "  4. previous       - Lagu sebelumnya" << endl;
     cout << "  5. list           - Daftar semua lagu" << endl;
     cout << "  6. history        - Tampilkan lagu yang baru diputar" << endl;
-    cout << "  7. quit           - Keluar dari program" << endl;
+    cout << "  7. download       - Download lagu dari youtube" << endl;
+    cout << "  8. quit           - Keluar dari program" << endl;
     cout << "=============================" << endl;
 
-    string command;
     atomic<bool> stopFlag(false);
     std::atomic<bool> exitFlag(false);
     thread audioThread;
-
+    thread downloadThread;
     // Thread khusus untuk memonitor apakah lagu sudah selesai
     // atau belum
     // Butuh thread ini, karena supaya main thread (yang menampilkan menu)
@@ -203,6 +203,7 @@ int main()
     while (true)
     {
         cout << "Pilih menu: ";
+        string download_url;
 
         int choice;
         cin >> choice;
@@ -280,6 +281,27 @@ int main()
             printFilesFromStack(history);
             break;
         case 7:
+            cout << "Masukkan link youtube: ";
+            cin >> download_url;
+
+            // Download lagu dari youtube
+            downloadThread = thread([&]()
+                                    { system(("yt-dlp -x --audio-format mp3 --audio-quality 0 -o \"musics/%(title)s.%(ext)s\" " + download_url).c_str()); });
+
+            downloadThread.join();
+
+            // Update list of mp3 files
+            mp3Files = readMp3Files("musics");
+            playlist.clear();
+
+            for (size_t i = 0; i < mp3Files.size(); i++)
+            {
+                playlist.push_back(mp3Files[i]);
+            }
+
+            cout << "Lagu berhasil di-download." << endl;
+            break;
+        case 8:
             exitFlag = true;
             cv.notify_one();
             stopAudio(stopFlag);
@@ -290,10 +312,6 @@ int main()
             break;
         default:
             cout << "No menus." << endl;
-        }
-
-        if (choice == 7)
-        {
             break;
         }
     }
