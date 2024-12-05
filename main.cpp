@@ -134,7 +134,7 @@ void playNext(list<string>::iterator &current_song, list<string> &playlist, atom
         {
             current_song = playlist.begin();
         }
-        cout << "Next song: ";
+        cout << "Lagu berikutnya: ";
         printMusicName(*current_song, false);
         cout << endl;
         stopFlag = false;
@@ -170,14 +170,14 @@ int main()
     cout << "       Music Playlist        " << endl;
     cout << "=============================" << endl;
 
-    cout << "Commands:" << endl;
-    cout << "  play           - Play the current song" << endl;
-    cout << "  pause          - Pause the current song" << endl;
-    cout << "  next           - Go to the next song" << endl;
-    cout << "  previous       - Go to the previous song" << endl;
-    cout << "  list           - List all songs in the playlist" << endl;
-    cout << "  history        - Show recently played songs" << endl;
-    cout << "  quit           - Exit the program" << endl;
+    cout << "Menu:" << endl;
+    cout << "  1. play           - Memutar lagu" << endl;
+    cout << "  2. pause          - Pause lagu" << endl;
+    cout << "  3. next           - Lagu berikutnya" << endl;
+    cout << "  4. previous       - Lagu sebelumnya" << endl;
+    cout << "  5. list           - Daftar semua lagu" << endl;
+    cout << "  6. history        - Tampilkan lagu yang baru diputar" << endl;
+    cout << "  7. quit           - Keluar dari program" << endl;
     cout << "=============================" << endl;
 
     string command;
@@ -203,19 +203,22 @@ int main()
     while (true)
     {
         cout << "Pilih menu: ";
-        cin >> command;
 
-        if (command == "play")
+        int choice;
+        cin >> choice;
+
+        switch (choice)
         {
+        case 1:
             if (sound.getStatus() == sf::Sound::Paused)
             {
                 sound.play();
-                continue;
+                break;
             }
             else if (sound.getStatus() == sf::Sound::Playing)
             {
-                cout << "Song is already playing." << endl;
-                continue;
+                cout << "Lagu ini sedang diputar." << endl;
+                break;
             }
 
             if (current_song == playlist.end())
@@ -224,7 +227,7 @@ int main()
                 current_song = playlist.begin();
             }
 
-            cout << "Playing: ";
+            cout << "Memainkan: ";
             printMusicName(*current_song, false);
             cout << endl;
             stopFlag = false;
@@ -234,9 +237,8 @@ int main()
             }
             audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
             history.push(*current_song); // Add to history
-        }
-        else if (command == "pause")
-        {
+            break;
+        case 2:
             if (sound.getStatus() == sf::Sound::Playing)
             {
                 sound.pause();
@@ -245,13 +247,11 @@ int main()
             {
                 sound.play();
             }
-        }
-        else if (command == "next")
-        {
+            break;
+        case 3:
             playNext(current_song, playlist, stopFlag, audioThread, history);
-        }
-        else if (command == "previous")
-        {
+            break;
+        case 4:
             if (current_song != playlist.begin())
             {
                 stopAudio(stopFlag);
@@ -260,41 +260,41 @@ int main()
                     audioThread.join();
                 }
                 --current_song;
-                cout << "Previous song: ";
+                cout << "Lagu sebelumnya: ";
                 printMusicName(*current_song, false);
                 cout << endl;
                 stopFlag = false;
                 audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
-                history.push(*current_song); // Add to history
+                history.push(*current_song);
             }
             else
             {
-                cout << "No previous song." << endl;
+                cout << "Belum ada lagi sebelumnya." << endl;
             }
-        }
-        else if (command == "list")
-        {
-            cout << "Available songs:" << endl;
+            break;
+        case 5:
+            cout << "Pilihan lagu:" << endl;
             printFiles(playlist);
-        }
-        else if (command == "history")
-        {
+            break;
+        case 6:
             printFilesFromStack(history);
-        }
-        else if (command == "quit")
-        {
+            break;
+        case 7:
             exitFlag = true;
-            cv.notify_one();     // Notify the monitorThread to exit
-            stopAudio(stopFlag); // Stop the current song
+            cv.notify_one();
+            stopAudio(stopFlag);
             if (audioThread.joinable())
             {
                 audioThread.join();
             }
-            break; // Exit the loop
+            break;
+        default:
+            cout << "No menus." << endl;
         }
-        else
+
+        if (choice == 7)
         {
-            cout << "Invalid command." << endl;
+            break;
         }
     }
 
