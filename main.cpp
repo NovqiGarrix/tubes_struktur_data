@@ -147,6 +147,69 @@ void playNext(list<string>::iterator &current_song, list<string> &playlist, atom
     }
 }
 
+// Add the new function to reload the playlist
+void reloadPlaylist(list<string> &playlist, vector<string> &mp3Files, list<string>::iterator &current_song,
+                    atomic<bool> &stopFlag, thread &audioThread, stack<string> &history,
+                    sf::Sound &sound, std::condition_variable &cv, std::mutex &cv_m, bool &songEnded)
+{
+    // Save current song name if one is playing
+    string current_song_name;
+    bool was_playing = false;
+    if (current_song != playlist.end())
+    {
+        current_song_name = *current_song;
+        was_playing = (sound.getStatus() == sf::Sound::Playing);
+    }
+
+    // Stop any playing audio before modifying playlist
+    if (sound.getStatus() == sf::Sound::Playing)
+    {
+        stopFlag = true;
+        if (audioThread.joinable())
+        {
+            audioThread.join();
+        }
+    }
+
+    // Reload playlist
+    mp3Files = readMp3Files("musics");
+    playlist.clear();
+    for (const auto &file : mp3Files)
+    {
+        playlist.push_back(file);
+    }
+
+    // Restore current song position if possible
+    if (!playlist.empty())
+    {
+        if (!current_song_name.empty())
+        {
+            // Try to find the previously playing song
+            auto it = find(playlist.begin(), playlist.end(), current_song_name);
+            current_song = (it != playlist.end()) ? it : playlist.begin();
+        }
+        else
+        {
+            // If no song was playing, point to the beginning
+            current_song = playlist.begin();
+        }
+
+        // Resume playback if it was playing before
+        if (was_playing)
+        {
+            stopFlag = false;
+            audioThread = thread(playAudioFile, *current_song, ref(stopFlag));
+            history.push(*current_song);
+        }
+    }
+    else
+    {
+        current_song = playlist.end();
+    }
+
+    cout << "Playlist reloaded." << endl;
+}
+
 int main()
 {
     vector<string> mp3Files = readMp3Files("musics");
@@ -182,12 +245,13 @@ int main()
     cout << "=============================" << endl;
 
     atomic<bool> stopFlag(false);
-    std::atomic<bool> exitFlag(false);
+    atomic<bool> exitFlag(false);
+    // bool exitFlag = false;
     thread audioThread;
     thread downloadThread;
     // Thread khusus untuk memonitor apakah lagu sudah selesai
     // atau belum
-    // Butuh thread ini, karena supaya main thread (yang menampilkan menu)
+    // Butuh thread ini, supaya main thread (yang menampilkan menu)
     // tidak diganggu
     thread monitorThread([&]()
                          {
@@ -243,10 +307,12 @@ int main()
             if (sound.getStatus() == sf::Sound::Playing)
             {
                 sound.pause();
+                cout << "Lagu di-pause." << endl;
             }
             else if (sound.getStatus() == sf::Sound::Paused)
             {
                 sound.play();
+                cout << "Lagi diputar kembali." << endl;
             }
             break;
         case 3:
@@ -275,6 +341,12 @@ int main()
             break;
         case 5:
             cout << "Pilihan lagu:" << endl;
+            // mp3Files = readMp3Files("musics");
+            // playlist.clear();
+            // for (const auto &file : mp3Files)
+            // {
+            //     playlist.push_back(file);
+            // }
             printFiles(playlist);
             break;
         case 6:
@@ -284,22 +356,33 @@ int main()
             cout << "Masukkan link youtube: ";
             cin >> download_url;
 
-            // Download lagu dari youtube
-            downloadThread = thread([&]()
-                                    { system(("yt-dlp -x --audio-format mp3 --audio-quality 0 -o \"musics/%(title)s.%(ext)s\" " + download_url).c_str()); });
+            cout << "Downloading... Please wait" << endl;
 
-            downloadThread.join();
-
-            // Update list of mp3 files
-            mp3Files = readMp3Files("musics");
-            playlist.clear();
-
-            for (size_t i = 0; i < mp3Files.size(); i++)
             {
-                playlist.push_back(mp3Files[i]);
-            }
+                atomic<bool> downloadComplete(false);
+                int downloadStatus = 0;
 
-            cout << "Lagu berhasil di-download." << endl;
+                downloadThread = thread([&]()
+                                        {
+                    downloadStatus = system(("yt-dlp -x --audio-format mp3 --audio-quality 0 -o \"musics/%(title)s.%(ext)s\" " + download_url).c_str());
+                    downloadComplete = true; });
+
+                // Show loading animation while waiting
+                while (!downloadComplete)
+                {
+                    cout << "\rDownloading... /" << flush;
+                    this_thread::sleep_for(chrono::milliseconds(250));
+                    cout << "\rDownloading... -" << flush;
+                    this_thread::sleep_for(chrono::milliseconds(250));
+                    cout << "\rDownloading... \\" << flush;
+                    this_thread::sleep_for(chrono::milliseconds(250));
+                    cout << "\rDownloading... |" << flush;
+                    this_thread::sleep_for(chrono::milliseconds(250));
+                }
+                cout << "\r" << string(20, ' ') << "\r" << flush; // Clear loading animation
+
+                downloadThread.join();
+            }
             break;
         case 8:
             exitFlag = true;
@@ -309,11 +392,23 @@ int main()
             {
                 audioThread.join();
             }
+
+            cout << "Exiting..." << endl;
+
+            // Add break to exit the while loop
             break;
+        case 9:
+            reloadPlaylist(playlist, mp3Files, current_song, stopFlag, audioThread, history, sound, cv, cv_m, songEnded);
+            break;
+
         default:
             cout << "No menus." << endl;
             break;
         }
+
+        // Add check after switch to break from while loop
+        if (exitFlag)
+            break;
     }
 
     // Join the monitor thread before exiting
