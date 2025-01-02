@@ -242,6 +242,7 @@ int main()
     cout << "  6. history        - Tampilkan lagu yang baru diputar" << endl;
     cout << "  7. download       - Download lagu dari youtube" << endl;
     cout << "  8. quit           - Keluar dari program" << endl;
+    cout << "  9. reload         - Reload playlist" << endl;
     cout << "=============================" << endl;
 
     atomic<bool> stopFlag(false);
@@ -271,6 +272,13 @@ int main()
 
         int choice;
         cin >> choice;
+        if (cin.fail())
+        {
+            cin.clear();                                                   // Clear the error flags
+            cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n'); // Discard invalid input
+            cout << "Invalid input. Hanya menerima angka sesuai dengan nomor menu." << endl;
+            continue;
+        }
 
         switch (choice)
         {
@@ -353,21 +361,25 @@ int main()
             printFilesFromStack(history);
             break;
         case 7:
+        {
             cout << "Masukkan link youtube: ";
             cin >> download_url;
 
             cout << "Downloading... Please wait" << endl;
 
+            bool downloadComplete = false; // Add downloadComplete flag
+
             {
-                atomic<bool> downloadComplete(false);
                 int downloadStatus = 0;
 
-                downloadThread = thread([&]()
-                                        {
-                    downloadStatus = system(("yt-dlp -x --audio-format mp3 --audio-quality 0 -o \"musics/%(title)s.%(ext)s\" " + download_url).c_str());
-                    downloadComplete = true; });
+                // Start download in a separate thread
+                thread downloadThread([&]()
+                                      {
+                                          downloadStatus = system(("yt-dlp -x --audio-format mp3 --audio-quality 0 -o \"musics/%(title)s.%(ext)s\" " + download_url).c_str());
+                                          downloadComplete = true; // Set flag when done
+                                      });
 
-                // Show loading animation while waiting
+                // Display loading animation while downloading
                 while (!downloadComplete)
                 {
                     cout << "\rDownloading... /" << flush;
@@ -384,6 +396,7 @@ int main()
                 downloadThread.join();
             }
             break;
+        }
         case 8:
             exitFlag = true;
             cv.notify_one();
@@ -402,7 +415,7 @@ int main()
             break;
 
         default:
-            cout << "No menus." << endl;
+            cout << "Tidak ada menu." << endl;
             break;
         }
 
